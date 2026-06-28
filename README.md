@@ -1,5 +1,8 @@
 # Granular-Disk-Sector-Scanner
 
+<img width="686" height="540" alt="image" src="https://github.com/user-attachments/assets/9fef9dde-3ec1-4dc4-a97b-dc8cfb4b395c" />
+
+
 # Low-Level SSD Structural Latency Blueprint Scanner
 
 A highly granular, bare-metal storage diagnostic tool written in Python. This script bypasses both Windows software caching layers and storage controller hardware buffering to perform a true physical block-by-block, page-by-page read latency scan.
@@ -57,7 +60,7 @@ cd C:\Users\YourUsername\Desktop
 Launch the script by passing the file name directly to the Python interpreter:
 
 ```powershell
-python gemini-code-1782599647188.py
+scandisk.py
 ```
 
 ## Interacting with the Map (Live Progress)
@@ -86,7 +89,7 @@ The output image translates low-level physical traits into explicit visual landm
 ---
 
 ## File System Structure Reference
-* `gemini-code-1782599647188.py` - Core hardware scanner script.
+* `scandisk.py` - Core hardware scanner script.
 * `ssd_structural_blueprint2.png` - Resulting real-time high-density visual grayscale map asset.
 
 ---
