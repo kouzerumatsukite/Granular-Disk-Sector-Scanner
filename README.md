@@ -1,11 +1,12 @@
 # Granular-Disk-Sector-Scanner
 
-<img width="686" height="540" alt="image" src="https://github.com/user-attachments/assets/9fef9dde-3ec1-4dc4-a97b-dc8cfb4b395c" />
+<img width="643" height="491" alt="image" src="https://github.com/user-attachments/assets/af160808-de07-4f0b-b005-a84cb6e2ebd8" />
+
 
 
 # Low-Level SSD Structural Latency Blueprint Scanner
 
-A highly granular, bare-metal storage diagnostic tool written in Python. This script bypasses both Windows software caching layers and storage controller hardware buffering to perform a true physical block-by-block, page-by-page read latency scan.
+A highly granular, bare-metal storage diagnostic tool written in Python. This script minimizes host-side caching effects to perform a true physical block-by-block, page-by-page read latency scan.
 
 The tool organizes the drive's geometry into distinct 2MB physical erase block tiles, mapping latencies onto a dynamically scaled grayscale blueprint image using a hyperbolic tangent ($\tanh$) compression curve. It also calculates interactive horizontal and vertical "shadow" borders showing row and column sub-averages for fast visual triage of flash wear topologies.
 
