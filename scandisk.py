@@ -27,7 +27,7 @@ NUM_RETRIES = 3              # Verification read attempts
 OUTPUT_FILE = "ssd_structural_blueprint2.png"
 
 def get_color_for_latency(latency_ms):
-    return int(math.tanh(latency_ms/256)*255)
+    return int(math.tanh(16*latency_ms/256)*255)
 
 def get_physical_disk_size(handle):
     # IOCTL_DISK_GET_DRIVE_GEOMETRY_EX control code
@@ -64,7 +64,7 @@ def main():
             win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE,
             None,
             win32con.OPEN_EXISTING,
-            win32con.FILE_ATTRIBUTE_NORMAL | win32con.FILE_FLAG_NO_BUFFERING | win32con.FILE_FLAG_WRITE_THROUGH,
+            win32con.FILE_ATTRIBUTE_NORMAL | win32con.FILE_FLAG_NO_BUFFERING,
             None
         )
     except Exception as e:
@@ -87,8 +87,8 @@ def main():
     tiles_per_row = TILES_PER_ROW
     total_rows = math.ceil(total_tiles / tiles_per_row)
     
-    img_width = tiles_per_row * TILE_SIDE_PIXELS_X
-    img_height = total_rows * TILE_SIDE_PIXELS_Y
+    img_width = tiles_per_row * TILE_SIDE_PIXELS_Y
+    img_height = total_rows * TILE_SIDE_PIXELS_X
     
     output_image = Image.new("L", (img_width, img_height), 128)
     pixels = output_image.load()
@@ -98,8 +98,8 @@ def main():
     print()
     for tile_idx in range(total_tiles):
         print("Sectors",tile_idx,"/",total_tiles,"scanned",end="\r")
-        tile_x = (tile_idx % tiles_per_row) * TILE_SIDE_PIXELS_X
-        tile_y = (tile_idx // tiles_per_row) * TILE_SIDE_PIXELS_Y
+        tile_x = (tile_idx % tiles_per_row) * TILE_SIDE_PIXELS_Y
+        tile_y = (tile_idx // tiles_per_row) * TILE_SIDE_PIXELS_X
         tile_byte_offset = tile_idx * BYTES_PER_TILE
 
         if tile_y >= img_height:
@@ -107,31 +107,8 @@ def main():
 
         # A structure to temporarily hold the core 64x64 raw numbers for projection math
         tile_latencies = [[0.0 for _ in range(CORE_GRID_SIDE_X)] for _ in range(CORE_GRID_SIDE_Y)]
-
-        # --- PHASE 1: MACRO READ (1x1 TOP-LEFT) ---
-        win32file.SetFilePointer(handle, tile_byte_offset, win32con.FILE_BEGIN)
         
-        bytes_remaining = total_bytes - tile_byte_offset
-        macro_read_size = min(ERASE_BLOCK_SIZE, bytes_remaining)
-        
-        start_macro = time.perf_counter()
-        try:
-            _, _ = win32file.ReadFile(handle, macro_read_size)
-            end_macro = time.perf_counter()
-            pages_read = math.ceil(macro_read_size / SECTOR_SIZE)
-            macro_latency = ((end_macro - start_macro) * 1000) / max(1, pages_read)
-        except Exception as e:
-            # Check if Windows threw a hardware out-of-bounds error
-            # e.winerror 38 = EOF, 27 = Sector Not Found
-            if hasattr(e, 'winerror') and e.winerror in (27, 38):
-                print(f"\n[!] Physical end of disk reached cleanly at tile {tile_idx} (Estimated ceiling hit).")
-                break # Stop scanning entirely and go to final save
-                
-            macro_latency = 9999.0
-            
-        pixels[tile_x, tile_y] = get_color_for_latency(macro_latency)
-
-        # --- PHASE 2: CORE SECTOR READS (64x64 BOTTOM-RIGHT) ---
+        # --- PHASE 1: CORE SECTOR READS (64x64 BOTTOM-RIGHT) ---
         for py in range(CORE_GRID_SIDE_Y):
             for px in range(CORE_GRID_SIDE_X):
                 pixel_index = (py * CORE_GRID_SIDE_X) + px
@@ -155,7 +132,7 @@ def main():
                         break # Break this tile's sector loop
                         
                     latency_ms = 9999.0
-
+                
                 # Conditional Retry logic to filter software hitching
                 if LATENCY_THRESHOLD_MS < latency_ms < 9999.0:
                     retry_latencies = []
@@ -170,28 +147,47 @@ def main():
                             retry_latencies.append(9999.0)
                     latency_ms = min(latency_ms, min(retry_latencies))
 
+                
                 tile_latencies[py][px] = latency_ms
-                pixels[tile_x + 1 + px, tile_y + 1 + py] = get_color_for_latency(latency_ms)
+                pixels[tile_x + 1 + py, tile_y + 1 + px] = get_color_for_latency(latency_ms)
 
-        # --- PHASE 3: COMPUTE SHADOW PROJECTIONS (TOP & LEFT BORDERS) ---
+        # --- PHASE 2: COMPUTE SHADOW PROJECTIONS ---
+        
+        # Top-Left Margin (1x1): Page averages
+        page_sum = 0
+        for row in range(CORE_GRID_SIDE_Y):
+            page_sum += sum(tile_latencies[row][col] for col in range(CORE_GRID_SIDE_X))
+        pixels[tile_x, tile_y] = get_color_for_latency(page_sum)# / CORE_GRID_SIDE_Y / CORE_GRID_SIDE_X)
+        
         # Top-Right Header (1x64): Column averages
         for col in range(CORE_GRID_SIDE_X):
-            col_avg = sum(tile_latencies[row][col] for row in range(CORE_GRID_SIDE_Y)) / CORE_GRID_SIDE_Y
-            pixels[tile_x + 1 + col, tile_y] = get_color_for_latency(col_avg)
+            col_avg = sum(tile_latencies[row][col] for row in range(CORE_GRID_SIDE_Y))
+            pixels[tile_x, tile_y + 1 + col] = get_color_for_latency(col_avg)# / CORE_GRID_SIDE_Y)
 
         # Bottom-Left Margin (64x1): Row averages
         for row in range(CORE_GRID_SIDE_Y):
-            row_avg = sum(tile_latencies[row][col] for col in range(CORE_GRID_SIDE_X)) / CORE_GRID_SIDE_X
-            pixels[tile_x, tile_y + 1 + row] = get_color_for_latency(row_avg)
-
+            row_avg = sum(tile_latencies[row][col] for col in range(CORE_GRID_SIDE_X))
+            pixels[tile_x + 1 + row, tile_y] = get_color_for_latency(row_avg)# / CORE_GRID_SIDE_X)
+            
         # Intermittent progressive save on completed row steps
         if (tile_idx + 1) % tiles_per_row == 0:
-            print(f"Row { (tile_idx + 1) // tiles_per_row }/{total_rows} drawn. Saving footprint safely...")
-            output_image.save(OUTPUT_FILE)
+            try:
+                output_image.save(OUTPUT_FILE)
+                print(f"Row { (tile_idx + 1) // tiles_per_row }/{total_rows} drawn. Saving footprint safely...")
+            except:
+                print(f"Row { (tile_idx + 1) // tiles_per_row }/{total_rows} drawn.")
 
     print("Sectors",total_tiles,"/",total_tiles,"scanned")
     win32file.CloseHandle(handle)
-    output_image.save(OUTPUT_FILE)
+    while True:
+        try:
+            print("Saving the map...")
+            output_image.save(OUTPUT_FILE)
+            break
+        except:
+            print("Saving failed, is the file used? Retrying in 5s...")
+            time.sleep(5)
+            
     print("Complete! Structural layout map rendered.")
 
 if __name__ == "__main__":
